@@ -1,0 +1,1173 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>LineHaul Planner - Planning Workbench</title>
+<style>* { margin:0; padding:0; box-sizing:border-box; } body { background:#0a0e1a; color:#e2e8f0; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif; }
+@keyframes spin { to { transform: rotate(360deg); } }</style>
+</head>
+<body>
+<div id="root"></div>
+<script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<script type="text/babel">
+const { useState } = React;
+
+// ── Colors ──
+const C = {
+  bg: "#0a0e1a", card: "#131829", cardBorder: "#1e2744",
+  text: "#e2e8f0", textDim: "#64748b", textMuted: "#475569",
+  blue: "#60a5fa", purple: "#c084fc", green: "#34d399",
+  yellow: "#fbbf24", red: "#f87171", pink: "#f472b6", orange: "#fb923c",
+  accent: "#3b82f6", surface: "#1a2035",
+};
+
+const priorityColors = { High: C.red, Medium: C.yellow, Low: C.blue };
+const sourceColors = { Synced: C.green, "Manual Override": C.orange, Inherited: C.textDim };
+const severityColors = { Critical: "#dc2626", High: C.red, Medium: C.yellow, Low: C.blue };
+const taskStatusColors = { "Pending Review": C.orange, "In Progress": C.blue, Completed: C.green, Rejected: C.red };
+const ruleStatusColors = { Active: C.green, Inactive: C.textDim, Draft: C.yellow };
+const runStatusColors = { Completed: C.green, Failed: C.red, Running: C.yellow };
+
+// ── Data: Tab 1 — Anomaly Monitoring ──
+
+const anomalySummary = [
+  { category: "Forecast Drift", activeCount: 12, trend: "up", color: C.yellow, timeline: [3, 5, 4, 6, 8, 10, 12] },
+  { category: "Backlog Risk", activeCount: 8, trend: "down", color: C.green, timeline: [12, 10, 9, 11, 8, 9, 8] },
+  { category: "Capacity Risk", activeCount: 24, trend: "up", color: C.red, timeline: [10, 12, 15, 18, 20, 22, 24] },
+  { category: "Resource Risk", activeCount: 15, trend: "up", color: C.orange, timeline: [8, 9, 10, 11, 12, 14, 15] },
+  { category: "SLA / COT Risk", activeCount: 6, trend: "down", color: C.green, timeline: [10, 9, 8, 7, 7, 6, 6] },
+];
+
+const anomalies = [
+  { id: "ANM-001", category: "Backlog Risk", description: "12-hour backlog > 10k at Cakung Zone 1", severity: "High", status: "Pending", score: 78,
+    scope: "Cakung DC / Zone 1", detectedAt: "Mar 5, 2026 10:32", linkedRuleId: "RULE-001",
+    factors: { deviation: 85, trend: 70, scope: 75, history: 60 },
+    routes: ["ID-CKG-Z1-01", "ID-CKG-Z1-02", "ID-CKG-Z1-03"],
+    activity: [
+      { time: "Mar 5, 10:32", actor: "System", event: "Signal detected: 12-hour backlog exceeded 10k at Cakung Zone 1" },
+      { time: "Mar 5, 10:45", actor: "Sarah Chen", event: "Reviewed signal, moved to Pending Action" },
+      { time: "Mar 5, 10:47", actor: "Sarah Chen", event: "Comment: Confirmed with warehouse\u2014dock 3 was offline for 2 hours." },
+      { time: "Mar 5, 11:15", actor: "System", event: "Replan initiated for Cakung Zone 1" },
+    ] },
+  { id: "ANM-002", category: "Backlog Risk", description: "3-hour backlog > 2k at Cakung Zone 2", severity: "Medium", status: "Resolved", score: 52,
+    scope: "Cakung DC / Zone 2", detectedAt: "Mar 4, 2026 14:20", linkedRuleId: "RULE-002",
+    factors: { deviation: 55, trend: 45, scope: 60, history: 40 },
+    routes: ["ID-CKG-Z2-01", "ID-CKG-Z2-02"],
+    activity: [
+      { time: "Mar 4, 14:20", actor: "System", event: "Signal detected: 3-hour backlog exceeded 2k" },
+      { time: "Mar 4, 14:35", actor: "System", event: "Auto-replan triggered (no review required)" },
+      { time: "Mar 4, 15:10", actor: "System", event: "Replan completed. Result: trip count -1, cost -3%, SLA +1pp" },
+    ] },
+  { id: "ANM-003", category: "Backlog Risk", description: "24-hour backlog > 5k at Cakung Zone 3", severity: "Critical", status: "Detected", score: 92,
+    scope: "Cakung DC / Zone 3", detectedAt: "Mar 5, 2026 10:32", linkedRuleId: null,
+    factors: { deviation: 95, trend: 90, scope: 85, history: 80 },
+    routes: ["ID-CKG-Z3-01", "ID-CKG-Z3-02", "ID-CKG-Z3-03", "ID-CKG-Z3-04"],
+    activity: [
+      { time: "Mar 5, 10:32", actor: "System", event: "Signal detected: 24-hour backlog exceeded 5k at Cakung Zone 3" },
+      { time: "Mar 5, 10:33", actor: "System", event: "Auto-escalated to Regional Manager (Critical severity)" },
+    ] },
+  { id: "ANM-004", category: "Forecast Drift", description: "MAPE +32% on PH-Central, 5 routes affected", severity: "High", status: "Pending", score: 74,
+    scope: "PH-Central / 5 routes", detectedAt: "Mar 5, 2026 09:15", linkedRuleId: "RULE-002",
+    factors: { deviation: 80, trend: 65, scope: 70, history: 55 },
+    routes: ["PH-C-01", "PH-C-02", "PH-C-03", "PH-C-04", "PH-C-05"],
+    activity: [
+      { time: "Mar 5, 09:15", actor: "System", event: "Forecast drift detected: MAPE exceeded 32% on PH-Central" },
+      { time: "Mar 5, 09:30", actor: "System", event: "Review task created, assigned to Regional Manager" },
+    ] },
+  { id: "ANM-005", category: "Capacity Risk", description: "US East capacity utilization at 96%", severity: "Critical", status: "In Progress", score: 88,
+    scope: "US East / 12 routes", detectedAt: "Mar 4, 2026 16:00", linkedRuleId: "RULE-003",
+    factors: { deviation: 90, trend: 85, scope: 80, history: 75 },
+    routes: ["US-E-01", "US-E-02", "US-E-03"],
+    activity: [
+      { time: "Mar 4, 16:00", actor: "System", event: "Capacity utilization exceeded 95% at US East DC" },
+      { time: "Mar 4, 16:05", actor: "System", event: "Auto-escalated + replan triggered with review" },
+      { time: "Mar 4, 16:30", actor: "Murphy Han", event: "Approved emergency capacity adjustment" },
+    ] },
+  { id: "ANM-006", category: "Resource Risk", description: "4 trucks unavailable at Cakung DC", severity: "Medium", status: "Pending", score: 58,
+    scope: "ID-Cakung / 4 vehicles", detectedAt: "Mar 5, 2026 08:00", linkedRuleId: null,
+    factors: { deviation: 60, trend: 50, scope: 65, history: 45 },
+    routes: ["ID-CKG-Z1-01", "ID-CKG-Z2-01"],
+    activity: [{ time: "Mar 5, 08:00", actor: "System", event: "Resource alert: 4 trucks marked unavailable at Cakung DC" }] },
+  { id: "ANM-007", category: "SLA / COT Risk", description: "SLA miss rate 7% at MY-Penang (threshold 5%)", severity: "Low", status: "Resolved", score: 35,
+    scope: "MY-Penang / 2 routes", detectedAt: "Mar 3, 2026 11:00", linkedRuleId: "RULE-005",
+    factors: { deviation: 40, trend: 30, scope: 35, history: 25 },
+    routes: ["MY-P-01", "MY-P-02"],
+    activity: [
+      { time: "Mar 3, 11:00", actor: "System", event: "SLA miss rate exceeded 5% threshold" },
+      { time: "Mar 3, 14:00", actor: "System", event: "Auto-resolved: SLA improved after route adjustment" },
+    ] },
+];
+
+// ── Data: Tab 2 — Configuration Center ──
+
+const configSections = [
+  { name: "Objective & Strategy Defaults", dot: C.green },
+  { name: "Route Configuration", dot: C.yellow },
+  { name: "Vehicle Types", dot: C.green },
+  { name: "Station Configuration", dot: C.red },
+  { name: "Dock Configuration", dot: C.red },
+  { name: "Staging Configuration", dot: C.green },
+  { name: "Resource Pool", dot: C.green },
+  { name: "Planning Parameters", dot: C.green },
+  { name: "Forecast", dot: C.green },
+];
+
+const configEntries = [
+  { name: "Cakung Zone 1", attrs: "Origin: Hub A, Dest: Zone 1", values: "Distance: 25km, Time: 45min", source: "Synced", modified: "2026-03-05 10:32", by: "System Sync" },
+  { name: "Cakung Zone 2", attrs: "Origin: Hub A, Dest: Zone 2", values: "Distance: 18km, Time: 30min", source: "Manual Override", modified: "2026-03-04 14:20", by: "Sarah Chen" },
+  { name: "Cakung Zone 2 v2.0", attrs: "Origin: Hub B, Dest: Zone 2", values: "Distance: 32km, Time: 55min", source: "Synced", modified: "2026-03-05 10:32", by: "System Sync" },
+  { name: "Cakung Zone 3", attrs: "Origin: Hub B, Dest: Zone 3", values: "Distance: 22km, Time: 40min", source: "Inherited", modified: "2026-02-28 09:15", by: "Sarah Chen" },
+  { name: "Cakung Zone 4", attrs: "Origin: Hub C, Dest: Zone 4", values: "Distance: 15km, Time: 25min", source: "Synced", modified: "2026-03-05 10:32", by: "System Sync" },
+];
+
+const thresholdEntries = [
+  { name: "Forecast Drift MAPE", metric: "MAPE %", currentValue: "10%", scope: "All Routes", source: "Manual Override", modified: "2026-03-05", by: "Sarah Chen", linkedRules: ["RULE-002"] },
+  { name: "Backlog 12hr", metric: "Parcel Count", currentValue: "10,000", scope: "All DCs", source: "Synced", modified: "2026-03-04", by: "System Sync", linkedRules: ["RULE-001"] },
+  { name: "Backlog 3hr", metric: "Parcel Count", currentValue: "2,000", scope: "All DCs", source: "Synced", modified: "2026-03-04", by: "System Sync", linkedRules: ["RULE-001"] },
+  { name: "SLA Miss Rate", metric: "Percentage", currentValue: "5%", scope: "All Routes", source: "Manual Override", modified: "2026-03-03", by: "Murphy Han", linkedRules: ["RULE-005"] },
+  { name: "Capacity Utilization", metric: "Percentage", currentValue: "90%", scope: "All DCs", source: "Inherited", modified: "2026-02-28", by: "System Sync", linkedRules: ["RULE-003"] },
+];
+
+// ── Data: Tab 3 — Auto-trigger Model ──
+
+const rules = [
+  { id: "RULE-001", name: "Backlog Auto-Replan (12hr)", status: "Active",
+    conditionSummary: "Backlog 12hr > 10,000 AND scope = Cakung DC", actionSummary: "Trigger replan, no review required",
+    triggerCount: 14, lastTriggered: "Mar 5, 2026 10:32", createdBy: "Sarah Chen", createdAt: "Feb 15, 2026",
+    conditions: [{ type: "metric", metric: "Backlog 12hr", operator: ">", value: "10,000", scope: "Cakung DC", duration: "" }],
+    actions: [{ type: "trigger_replan", sections: ["Route Configuration", "Vehicle Types"], requiresReview: false }] },
+  { id: "RULE-002", name: "Forecast Drift Alert (MAPE)", status: "Active",
+    conditionSummary: "MAPE > 10% for any route, sustained > 3 days", actionSummary: "Create review task, assign to Regional Manager",
+    triggerCount: 8, lastTriggered: "Mar 4, 2026 14:20", createdBy: "Murphy Han", createdAt: "Feb 20, 2026",
+    conditions: [{ type: "metric", metric: "Forecast Drift MAPE", operator: ">", value: "10%", scope: "All Routes", duration: "3 days" }],
+    actions: [{ type: "create_task", priority: "High", assignee: "Regional Manager" }] },
+  { id: "RULE-003", name: "Capacity Overflow Emergency", status: "Active",
+    conditionSummary: "Capacity utilization > 95% at any DC", actionSummary: "Escalate to RM + trigger replan with review",
+    triggerCount: 3, lastTriggered: "Mar 1, 2026 09:15", createdBy: "Sarah Chen", createdAt: "Mar 1, 2026",
+    conditions: [{ type: "metric", metric: "Capacity Utilization", operator: ">", value: "95%", scope: "All DCs", duration: "" }],
+    actions: [{ type: "escalate", target: "Regional Manager" }, { type: "trigger_replan", sections: ["Route Configuration"], requiresReview: true }] },
+  { id: "RULE-004", name: "Quarterly Schedule Review", status: "Active",
+    conditionSummary: "Recurring: every quarter start", actionSummary: "Create review task for all DCs",
+    triggerCount: 2, lastTriggered: "Jan 1, 2026", createdBy: "System", createdAt: "Dec 1, 2025",
+    conditions: [{ type: "schedule", frequency: "Quarterly", day: "1st day", time: "00:00" }],
+    actions: [{ type: "create_task", priority: "Medium", assignee: "Operations Planner" }] },
+  { id: "RULE-005", name: "SLA Degradation Watch", status: "Inactive",
+    conditionSummary: "SLA miss rate > 5% for 2 consecutive days", actionSummary: "Alert planner + suggest route rebalance",
+    triggerCount: 0, lastTriggered: null, createdBy: "Murphy Han", createdAt: "Mar 10, 2026",
+    conditions: [{ type: "metric", metric: "SLA Miss Rate", operator: ">", value: "5%", scope: "All Routes", duration: "2 days" }],
+    actions: [{ type: "send_alert", channel: "In-app", recipient: "Operations Planner" }] },
+];
+
+const triggeredTasks = [
+  { id: 1, priority: "High", trigger: "Network Change", scope: "Cakung DC / 12 routes", period: "Q2 2026", due: "Mar 12, 2026", sourceRuleId: "RULE-001", status: "Pending Review",
+    detail: { risk: "12 new local routes added from Cakung DC, exceeding current fleet capacity by 18%.", routes: ["CKG-Z1-01", "CKG-Z1-02", "CKG-Z2-01", "CKG-Z3-01", "CKG-Z4-01"], result: { trips: "+8", cost: "+12%", sla: "+3pp", status: "Effective" } } },
+  { id: 2, priority: "High", trigger: "Promo", scope: "Semarang Hub / 8 routes", period: "Q2 2026", due: "Mar 10, 2026", sourceRuleId: "RULE-002", status: "Pending Review",
+    detail: { risk: "Q2 promotion expected to increase volume by 45% on Semarang Hub local routes.", routes: ["SMG-Z1-01", "SMG-Z2-01", "SMG-Z3-01"], result: null } },
+  { id: 3, priority: "Medium", trigger: "Auto Rerun", scope: "Surabaya DC / 5 routes", period: "Q2 2026", due: "Mar 18, 2026", sourceRuleId: "RULE-003", status: "In Progress",
+    detail: { risk: "Schedule deviates 22% from optimum due to volume pattern shift.", routes: ["SBY-Z1-01", "SBY-Z2-01"], result: null } },
+  { id: 4, priority: "Medium", trigger: "Recurring", scope: "All DCs / All routes", period: "Q3 2026", due: "Mar 25, 2026", sourceRuleId: "RULE-004", status: "Pending Review",
+    detail: { risk: "Quarterly comprehensive review of schedule health across all DCs.", routes: ["ALL"], result: null } },
+  { id: 5, priority: "Low", trigger: "Manual", scope: "Medan DC / 3 routes", period: "Q2 2026", due: "Mar 30, 2026", sourceRuleId: null, status: "Completed",
+    detail: { risk: "Minor volume fluctuation on Medan DC local routes. Within acceptable bounds.", routes: ["MDN-Z1-01", "MDN-Z2-01"], result: null } },
+];
+
+const adhocRuns = [
+  { id: "AH-20260312-001", name: "Cakung Q2 Capacity Test", scope: "Cakung DC", sections: ["Route Configuration", "Vehicle Types", "Dock Configuration"], period: "Q2 2026", status: "Completed", created: "Mar 12, 2026 09:30", by: "Sarah Chen",
+    result: { trips: 42, tripDelta: "-3", cost: "IDR 128.5M", costDelta: "-8%", occupancy: "82%", occDelta: "+4pp", sla: "97.2%", slaDelta: "+1.5pp", vehicles: 14, runtime: "2m 34s" },
+    schedule: [
+      { route: "CKG-Z1-01", departure: "06:00", arrival: "06:45", vehicle: "CDD 4T", occupancy: "85%" },
+      { route: "CKG-Z1-02", departure: "06:30", arrival: "07:20", vehicle: "CDD 8T", occupancy: "78%" },
+      { route: "CKG-Z2-01", departure: "07:00", arrival: "07:30", vehicle: "CDD 4T", occupancy: "90%" },
+      { route: "CKG-Z3-01", departure: "07:15", arrival: "08:00", vehicle: "Fuso 10T", occupancy: "76%" },
+      { route: "CKG-Z4-01", departure: "08:00", arrival: "08:25", vehicle: "CDD 4T", occupancy: "88%" },
+    ] },
+  { id: "AH-20260310-002", name: "Semarang New Route Test", scope: "Semarang Hub", sections: ["Route Configuration", "Station Configuration"], period: "Q2 2026", status: "Completed", created: "Mar 10, 2026 14:15", by: "Murphy Han",
+    result: { trips: 28, tripDelta: "+2", cost: "IDR 89.2M", costDelta: "+5%", occupancy: "75%", occDelta: "-2pp", sla: "95.8%", slaDelta: "-0.3pp", vehicles: 10, runtime: "1m 48s" },
+    schedule: [
+      { route: "SMG-Z1-01", departure: "05:30", arrival: "06:20", vehicle: "CDD 8T", occupancy: "72%" },
+      { route: "SMG-Z2-01", departure: "06:00", arrival: "06:45", vehicle: "CDD 4T", occupancy: "80%" },
+      { route: "SMG-Z3-01", departure: "06:30", arrival: "07:30", vehicle: "Fuso 10T", occupancy: "70%" },
+    ] },
+  { id: "AH-20260308-003", name: "Surabaya Dock Reconfig", scope: "Surabaya DC", sections: ["Dock Configuration", "Staging Configuration", "Vehicle Types"], period: "Q2 2026", status: "Failed", created: "Mar 8, 2026 11:00", by: "Sarah Chen",
+    result: null, schedule: null },
+];
+
+const lifecycleStates = ["Detected", "Pending", "In Progress", "Resolved", "Dismissed"];
+const lifecycleColors = [C.blue, C.orange, C.green, C.textDim, C.pink];
+
+// ── Shared Components ──
+
+const Badge = ({ text, color, style: s }) => (
+  <span style={{ display:"inline-block", padding:"2px 10px", borderRadius:12, fontSize:12, fontWeight:600, background:`${color}22`, color, ...s }}>{text}</span>
+);
+
+const Btn = ({ children, primary, small, onClick, style: s }) => (
+  <button onClick={onClick} style={{
+    padding: small ? "4px 12px" : "6px 16px", borderRadius: 6, border: primary ? "none" : `1px solid ${C.cardBorder}`,
+    background: primary ? C.accent : "transparent", color: primary ? "#fff" : C.textDim,
+    fontSize: small ? 12 : 13, cursor: "pointer", fontWeight: 500, transition: "all .15s", ...s,
+  }}>{children}</button>
+);
+
+const Dot = ({ color }) => <span style={{ display:"inline-block", width:8, height:8, borderRadius:4, background:color, marginRight:8, flexShrink:0 }} />;
+
+const SectionHeader = ({ title, subtitle }) => (
+  <div style={{ marginBottom: 20 }}>
+    <h2 style={{ fontSize: 20, fontWeight: 700, color: C.text }}>{title}</h2>
+    {subtitle && <p style={{ fontSize: 13, color: C.textDim, marginTop: 4 }}>{subtitle}</p>}
+  </div>
+);
+
+const TopBar = ({ activeTab, setActiveTab, notifCount }) => (
+  <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", padding:"12px 24px", background:C.card, borderBottom:`1px solid ${C.cardBorder}` }}>
+    <div style={{ display:"flex", gap:4 }}>
+      {["Anomaly Monitor", "Config Center", "Auto-trigger Model"].map(tab => (
+        <button key={tab} onClick={() => setActiveTab(tab)} style={{
+          padding:"8px 20px", borderRadius:8, border:"none", fontSize:14, fontWeight: activeTab===tab?600:400, cursor:"pointer", transition:"all .15s",
+          background: activeTab===tab ? C.accent : "transparent", color: activeTab===tab ? "#fff" : C.textDim,
+        }}>{tab}</button>
+      ))}
+    </div>
+    <div style={{ display:"flex", alignItems:"center", gap:16 }}>
+      <select style={{ background:C.surface, border:`1px solid ${C.cardBorder}`, borderRadius:6, color:C.text, padding:"6px 12px", fontSize:13 }}>
+        <option>United States</option><option>Philippines</option><option>Indonesia</option><option>Vietnam</option>
+      </select>
+      <Badge text="Production" color={C.green} />
+      <span style={{ fontSize:12, color:C.textMuted }}>Last Updated: Mar 5, 2026 11:45 AM</span>
+      <div style={{ position:"relative", cursor:"pointer" }}>
+        <span style={{ fontSize:18 }}>&#128276;</span>
+        {notifCount > 0 && <span style={{ position:"absolute", top:-6, right:-8, background:C.red, color:"#fff", fontSize:10, borderRadius:8, padding:"1px 5px", fontWeight:700 }}>{notifCount}</span>}
+      </div>
+    </div>
+  </div>
+);
+
+const SubTabBar = ({ tabs, active, setActive }) => (
+  <div style={{ display:"flex", gap:0, borderBottom:`1px solid ${C.cardBorder}`, marginBottom:20 }}>
+    {tabs.map(tab => (
+      <button key={tab} onClick={() => setActive(tab)} style={{
+        padding:"10px 20px", border:"none", fontSize:13, fontWeight: active===tab?600:400, cursor:"pointer", transition:"all .15s",
+        background:"transparent", color: active===tab ? C.text : C.textDim,
+        borderBottom: active===tab ? `2px solid ${C.accent}` : "2px solid transparent",
+      }}>{tab}</button>
+    ))}
+  </div>
+);
+
+const StatusToggle = ({ active, onToggle }) => (
+  <div onClick={onToggle} style={{
+    width:36, height:20, borderRadius:10, cursor:"pointer", transition:"all .2s", position:"relative",
+    background: active ? `${C.green}44` : C.surface, border:`1px solid ${active ? C.green : C.cardBorder}`,
+  }}>
+    <div style={{
+      width:14, height:14, borderRadius:7, background: active ? C.green : C.textMuted,
+      position:"absolute", top:2, left: active ? 19 : 2, transition:"all .2s",
+    }} />
+  </div>
+);
+
+const ActionButtons = () => (
+  <div style={{ display:"flex", gap:8 }}>
+    <Btn><span style={{ marginRight:4 }}>&#8593;</span> Upload Excel</Btn>
+    <Btn><span style={{ marginRight:4 }}>&#8635;</span> Reset to Upstream</Btn>
+    <Btn><span style={{ marginRight:4 }}>&#10003;</span> Validate</Btn>
+    <Btn primary><span style={{ marginRight:4 }}>+</span> Add New</Btn>
+  </div>
+);
+
+// ── Tab 1: Anomaly Monitoring Components ──
+
+const TimelineSparkline = ({ data, color }) => {
+  const max = Math.max(...data);
+  return (
+    <div style={{ display:"flex", alignItems:"flex-end", gap:2, height:24, marginTop:8 }}>
+      {data.map((v, i) => (
+        <div key={i} style={{ flex:1, height:`${(v / max) * 100}%`, background: i === data.length - 1 ? color : `${color}66`, borderRadius:1, minHeight:2, transition:"height .3s" }} />
+      ))}
+    </div>
+  );
+};
+
+const AnomalySummaryCard = ({ card, selected, onClick }) => {
+  const [hover, setHover] = useState(false);
+  const bgMap = { [C.red]: "#f8717122", [C.yellow]: "#fbbf2422", [C.green]: "#34d39922", [C.orange]: "#fb923c22" };
+  return (
+    <div onClick={onClick} onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)}
+      style={{ flex:1, background:bgMap[card.color]||C.card, border:`2px solid ${selected ? card.color : `${card.color}44`}`, borderRadius:12, padding:"16px 20px", cursor:"pointer", transition:"all .2s", transform: hover?"translateY(-2px)":"none" }}>
+      <div style={{ fontSize:12, fontWeight:600, color:card.color, marginBottom:4, textTransform:"uppercase", letterSpacing:.5 }}>{card.category}</div>
+      <div style={{ display:"flex", alignItems:"baseline", gap:8 }}>
+        <span style={{ fontSize:36, fontWeight:800, color:C.text }}>{card.activeCount}</span>
+        <span style={{ fontSize:18, color: card.trend==="up"?C.red:C.green }}>{card.trend==="up"?"\u2191":"\u2193"}</span>
+        <span style={{ fontSize:11, color:C.textMuted }}>active</span>
+      </div>
+      <TimelineSparkline data={card.timeline} color={card.color} />
+      <div style={{ fontSize:10, color:C.textMuted, marginTop:4 }}>Last 7 days</div>
+    </div>
+  );
+};
+
+const AnomalyFilterBar = ({ severityFilter, setSeverityFilter, statusFilter, setStatusFilter, search, setSearch }) => (
+  <div style={{ display:"flex", gap:12, alignItems:"center", marginBottom:16, flexWrap:"wrap" }}>
+    <div style={{ display:"flex", gap:4 }}>
+      {["All", "Critical", "High", "Medium", "Low"].map(s => (
+        <button key={s} onClick={() => setSeverityFilter(s)} style={{
+          padding:"4px 12px", borderRadius:6, border:`1px solid ${severityFilter===s ? (severityColors[s]||C.accent) : C.cardBorder}`,
+          background: severityFilter===s ? `${severityColors[s]||C.accent}22` : "transparent",
+          color: severityFilter===s ? (severityColors[s]||C.accent) : C.textDim, fontSize:12, cursor:"pointer", fontWeight:severityFilter===s?600:400,
+        }}>{s}</button>
+      ))}
+    </div>
+    <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)}
+      style={{ background:C.surface, border:`1px solid ${C.cardBorder}`, borderRadius:6, color:C.text, padding:"5px 10px", fontSize:12 }}>
+      <option value="All">All Status</option>
+      <option>Detected</option><option>Pending</option><option>In Progress</option><option>Resolved</option><option>Dismissed</option>
+    </select>
+    <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search anomalies..."
+      style={{ background:C.surface, border:`1px solid ${C.cardBorder}`, borderRadius:6, color:C.text, padding:"5px 12px", fontSize:12, outline:"none", width:200 }} />
+    <span style={{ fontSize:12, color:C.textMuted, marginLeft:"auto" }}>
+      {anomalies.length} anomalies total
+    </span>
+  </div>
+);
+
+const LifecycleBar = ({ activeState }) => {
+  const idx = lifecycleStates.indexOf(activeState);
+  return (
+    <div style={{ display:"flex", alignItems:"center", gap:0, marginBottom:12 }}>
+      {lifecycleStates.map((s, i) => {
+        const active = i <= idx;
+        const isCurrent = i === idx;
+        return (
+          <React.Fragment key={s}>
+            {i > 0 && <div style={{ width:32, height:2, background: active ? lifecycleColors[i] : C.cardBorder }} />}
+            <div style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:4 }}>
+              <div style={{
+                width: isCurrent ? 28 : 22, height: isCurrent ? 28 : 22, borderRadius: 14, display:"flex", alignItems:"center", justifyContent:"center",
+                background: active ? `${lifecycleColors[i]}22` : C.surface, border: `2px solid ${active ? lifecycleColors[i] : C.cardBorder}`,
+                fontSize: isCurrent ? 12 : 10, fontWeight: 700, color: active ? lifecycleColors[i] : C.textMuted, transition:"all .2s",
+              }}>{i < idx ? "\u2713" : i+1}</div>
+              <span style={{ fontSize:10, color: active ? C.text : C.textMuted, fontWeight: isCurrent ? 600 : 400, whiteSpace:"nowrap" }}>{s}</span>
+            </div>
+          </React.Fragment>
+        );
+      })}
+    </div>
+  );
+};
+
+const SeverityBreakdown = ({ factors }) => (
+  <div>
+    <div style={{ fontSize:12, fontWeight:600, color:C.textDim, marginBottom:8 }}>SEVERITY SCORE BREAKDOWN</div>
+    {[["Deviation Magnitude", factors.deviation, "40%", C.red], ["Trend Direction", factors.trend, "20%", C.orange], ["Impact Scope", factors.scope, "25%", C.blue], ["Historical Pattern", factors.history, "15%", C.purple]].map(([label, val, weight, color]) => (
+      <div key={label} style={{ marginBottom:8 }}>
+        <div style={{ display:"flex", justifyContent:"space-between", fontSize:11, marginBottom:2 }}>
+          <span style={{ color:C.textDim }}>{label} ({weight})</span>
+          <span style={{ color, fontWeight:600 }}>{val}</span>
+        </div>
+        <div style={{ height:4, background:C.surface, borderRadius:2, overflow:"hidden" }}>
+          <div style={{ width:`${val}%`, height:"100%", background:color, borderRadius:2, transition:"width .5s" }} />
+        </div>
+      </div>
+    ))}
+  </div>
+);
+
+const ActivityFeed = ({ activity }) => (
+  <div>
+    <div style={{ fontSize:12, fontWeight:600, color:C.textDim, marginBottom:8 }}>ACTIVITY FEED</div>
+    {activity.map((a,i) => (
+      <div key={i} style={{ display:"flex", gap:12, padding:"8px 0", borderBottom: i<activity.length-1?`1px solid ${C.cardBorder}`:"none" }}>
+        <div style={{ width:4, background: a.actor==="System"?C.blue:C.purple, borderRadius:2, flexShrink:0 }} />
+        <div>
+          <div style={{ fontSize:11, color:C.textMuted }}>{a.time} &mdash; <span style={{ color: a.actor==="System"?C.blue:C.purple, fontWeight:600 }}>{a.actor}</span></div>
+          <div style={{ fontSize:12, color:C.text, marginTop:2 }}>{a.event}</div>
+        </div>
+      </div>
+    ))}
+    <div style={{ marginTop:12, display:"flex", gap:8 }}>
+      <input placeholder="Add a comment..." style={{ flex:1, background:C.surface, border:`1px solid ${C.cardBorder}`, borderRadius:6, padding:"6px 12px", color:C.text, fontSize:12, outline:"none" }} />
+      <Btn primary small>Post</Btn>
+    </div>
+  </div>
+);
+
+const AnomalyRow = ({ item, expanded, onClick }) => {
+  const sColor = severityColors[item.severity];
+  const lifecycleMap = { Critical: "Detected", High: "Pending", Medium: "In Progress", Low: "Resolved" };
+  return (
+    <div style={{ borderLeft:`4px solid ${sColor}`, background: expanded ? C.surface : C.card, borderRadius:8, marginBottom:8, overflow:"hidden", transition:"all .2s" }}>
+      <div onClick={onClick} style={{ display:"grid", gridTemplateColumns:"90px 110px 1fr 80px 90px 160px 130px", alignItems:"center", padding:"12px 16px", cursor:"pointer", gap:8 }}>
+        <span style={{ fontSize:12, color:C.blue, fontFamily:"monospace" }}>{item.id}</span>
+        <Badge text={item.category} color={sColor} style={{ fontSize:11 }} />
+        <span style={{ fontSize:13, color:C.text }}>{item.description}</span>
+        <Badge text={item.severity} color={sColor} />
+        <Badge text={item.status} color={item.status==="Resolved"?C.green:item.status==="Detected"?C.blue:C.orange} />
+        <span style={{ fontSize:12, color:C.textDim }}>{item.scope}</span>
+        <span style={{ fontSize:11, color:C.textMuted }}>{item.detectedAt}</span>
+      </div>
+      {expanded && (
+        <div style={{ padding:"0 16px 16px", borderTop:`1px solid ${C.cardBorder}` }}>
+          <div style={{ display:"flex", alignItems:"center", gap:12, marginTop:12, marginBottom:16 }}>
+            <Badge text={item.severity} color={sColor} />
+            <span style={{ fontSize:13, color:C.text }}>Score: <b style={{ color:sColor }}>{item.score}</b></span>
+            {item.linkedRuleId && <Badge text={`Rule: ${item.linkedRuleId}`} color={C.purple} />}
+          </div>
+          <LifecycleBar activeState={lifecycleMap[item.severity] || "Detected"} />
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:16, marginTop:12 }}>
+            <div>
+              <SeverityBreakdown factors={item.factors} />
+              <div style={{ marginTop:12, fontSize:12, fontWeight:600, color:C.textDim }}>AFFECTED ROUTES</div>
+              <div style={{ display:"flex", gap:6, marginTop:4, flexWrap:"wrap" }}>
+                {item.routes.map(r => <Badge key={r} text={r} color={C.blue} />)}
+              </div>
+            </div>
+            <ActivityFeed activity={item.activity} />
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+const AnomalyMonitoring = () => {
+  const [categoryFilter, setCategoryFilter] = useState(null);
+  const [severityFilter, setSeverityFilter] = useState("All");
+  const [statusFilter, setStatusFilter] = useState("All");
+  const [search, setSearch] = useState("");
+  const [expandedId, setExpandedId] = useState(null);
+
+  const filtered = anomalies.filter(a => {
+    if (categoryFilter && a.category !== categoryFilter) return false;
+    if (severityFilter !== "All" && a.severity !== severityFilter) return false;
+    if (statusFilter !== "All" && a.status !== statusFilter) return false;
+    if (search && !a.description.toLowerCase().includes(search.toLowerCase()) && !a.id.toLowerCase().includes(search.toLowerCase())) return false;
+    return true;
+  });
+
+  return (
+    <div style={{ padding:24 }}>
+      <SectionHeader title="Anomaly Monitor" subtitle="Business metric anomaly monitoring and alert management" />
+      <div style={{ display:"flex", gap:12, marginBottom:20 }}>
+        {anomalySummary.map(c => (
+          <AnomalySummaryCard key={c.category} card={c} selected={categoryFilter===c.category}
+            onClick={() => setCategoryFilter(categoryFilter===c.category ? null : c.category)} />
+        ))}
+      </div>
+      <AnomalyFilterBar severityFilter={severityFilter} setSeverityFilter={setSeverityFilter}
+        statusFilter={statusFilter} setStatusFilter={setStatusFilter} search={search} setSearch={setSearch} />
+      <div style={{ display:"grid", gridTemplateColumns:"90px 110px 1fr 80px 90px 160px 130px", padding:"8px 16px", gap:8, marginBottom:4 }}>
+        {["ID","Category","Description","Severity","Status","Scope","Detected"].map(h => (
+          <span key={h} style={{ fontSize:11, fontWeight:600, color:C.textMuted, textTransform:"uppercase", letterSpacing:.5 }}>{h}</span>
+        ))}
+      </div>
+      {filtered.length === 0 ? (
+        <div style={{ padding:40, textAlign:"center", color:C.textMuted }}>
+          <div style={{ fontSize:32, marginBottom:8 }}>&#128269;</div>
+          <div>No anomalies match current filters</div>
+        </div>
+      ) : filtered.map(a => (
+        <AnomalyRow key={a.id} item={a} expanded={expandedId===a.id} onClick={() => setExpandedId(expandedId===a.id?null:a.id)} />
+      ))}
+    </div>
+  );
+};
+
+// ── Tab 2: Configuration Center Components ──
+
+const ImpactPreview = ({ entry }) => (
+  <div style={{ width:320, background:C.card, border:`1px solid ${C.cardBorder}`, borderRadius:12, padding:16, marginLeft:16, flexShrink:0 }}>
+    <div style={{ fontSize:14, fontWeight:700, color:C.text, marginBottom:12 }}>Impact Preview</div>
+    <div style={{ fontSize:12, fontWeight:600, color:C.textDim, marginBottom:8 }}>RIPPLE EFFECT</div>
+    {[
+      { section: "Vehicle Types", entries: 2, status: "pass" },
+      { section: "Dock Configuration", entries: 1, status: "warning" },
+      { section: "Staging Configuration", entries: 1, status: "pass" },
+    ].map((r,i) => (
+      <div key={i} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"6px 0", borderBottom:`1px solid ${C.cardBorder}` }}>
+        <span style={{ fontSize:12, color:C.text }}>{r.section} ({r.entries})</span>
+        <Badge text={r.status==="pass"?"\u2713 Pass":"\u26A0 Check"} color={r.status==="pass"?C.green:C.yellow} />
+      </div>
+    ))}
+    <div style={{ fontSize:12, fontWeight:600, color:C.textDim, marginTop:16, marginBottom:8 }}>ESTIMATED IMPACT</div>
+    <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8 }}>
+      {[["Trip \u0394", "+2", C.blue], ["Cost \u0394", "+5%", C.orange], ["Occupancy", "-3%", C.yellow], ["SLA Risk", "Low", C.green]].map(([l,v,c]) => (
+        <div key={l} style={{ textAlign:"center", padding:8, background:`${c}11`, borderRadius:6 }}>
+          <div style={{ fontSize:16, fontWeight:700, color:c }}>{v}</div>
+          <div style={{ fontSize:10, color:C.textDim }}>{l}</div>
+        </div>
+      ))}
+    </div>
+    <div style={{ fontSize:10, color:C.textMuted, marginTop:12, fontStyle:"italic" }}>Indicative &mdash; run MILP for exact results</div>
+  </div>
+);
+
+const LinkedRulesPanel = ({ entry }) => (
+  <div style={{ width:320, background:C.card, border:`1px solid ${C.cardBorder}`, borderRadius:12, padding:16, marginLeft:16, flexShrink:0 }}>
+    <div style={{ fontSize:14, fontWeight:700, color:C.text, marginBottom:12 }}>Linked Rules</div>
+    <div style={{ fontSize:12, fontWeight:600, color:C.textDim, marginBottom:8 }}>RULES REFERENCING THIS THRESHOLD</div>
+    {entry.linkedRules.map(ruleId => {
+      const rule = rules.find(r => r.id === ruleId);
+      return rule ? (
+        <div key={ruleId} style={{ padding:"10px 12px", background:C.surface, borderRadius:8, marginBottom:8, border:`1px solid ${C.cardBorder}` }}>
+          <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:4 }}>
+            <Badge text={rule.status} color={ruleStatusColors[rule.status]} />
+            <span style={{ fontSize:13, fontWeight:600, color:C.text }}>{rule.name}</span>
+          </div>
+          <div style={{ fontSize:11, color:C.textDim }}>{rule.conditionSummary}</div>
+          <div style={{ fontSize:11, color:C.textMuted, marginTop:4 }}>Triggered {rule.triggerCount} times</div>
+        </div>
+      ) : (
+        <div key={ruleId} style={{ fontSize:12, color:C.textMuted }}>{ruleId} (not found)</div>
+      );
+    })}
+    <div style={{ fontSize:12, fontWeight:600, color:C.textDim, marginTop:16, marginBottom:8 }}>THRESHOLD DETAILS</div>
+    <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8 }}>
+      {[["Current", entry.currentValue, C.blue], ["Metric", entry.metric, C.purple], ["Scope", entry.scope, C.green], ["Source", entry.source, sourceColors[entry.source]||C.textDim]].map(([l,v,c]) => (
+        <div key={l} style={{ textAlign:"center", padding:8, background:`${c}11`, borderRadius:6 }}>
+          <div style={{ fontSize:14, fontWeight:700, color:c }}>{v}</div>
+          <div style={{ fontSize:10, color:C.textDim }}>{l}</div>
+        </div>
+      ))}
+    </div>
+  </div>
+);
+
+const ConfigurationCenter = () => {
+  const [activeSection, setActiveSection] = useState("Route Configuration");
+  const [selectedEntry, setSelectedEntry] = useState(null);
+  const isThreshold = activeSection === "Threshold Parameters";
+
+  const entries = isThreshold ? thresholdEntries : configEntries;
+  const thresholdCols = ["Parameter Name", "Metric Type", "Current Value", "Scope", "Source", "Modified", "Modified By"];
+  const configCols = ["Entity Name", "Key Attributes", "Default Values", "Source", "Last Modified", "Modified By"];
+  const cols = isThreshold ? thresholdCols : configCols;
+  const gridCols = isThreshold ? "160px 120px 120px 120px 130px 120px 110px" : "140px 190px 210px 120px 140px 110px";
+
+  return (
+    <div style={{ display:"flex", height:"calc(100vh - 56px)" }}>
+      <div style={{ width:220, background:C.card, borderRight:`1px solid ${C.cardBorder}`, padding:"20px 0", overflowY:"auto", flexShrink:0 }}>
+        <div style={{ padding:"0 16px", marginBottom:16 }}>
+          <div style={{ fontSize:12, fontWeight:600, color:C.textMuted, textTransform:"uppercase", letterSpacing:.5 }}>Configuration Sections</div>
+        </div>
+        {configSections.map(s => (
+          <div key={s.name} onClick={() => { setActiveSection(s.name); setSelectedEntry(null); }}
+            style={{ display:"flex", alignItems:"center", padding:"8px 16px", cursor:"pointer", background:activeSection===s.name?C.surface:"transparent", borderRight: activeSection===s.name?`3px solid ${C.accent}`:"3px solid transparent", transition:"all .15s" }}>
+            <Dot color={s.dot} />
+            <span style={{ fontSize:13, color:activeSection===s.name?C.text:C.textDim, fontWeight:activeSection===s.name?600:400 }}>{s.name}</span>
+          </div>
+        ))}
+        <div style={{ borderTop:`1px solid ${C.cardBorder}`, margin:"12px 0" }} />
+        <div onClick={() => { setActiveSection("Threshold Parameters"); setSelectedEntry(null); }}
+          style={{ display:"flex", alignItems:"center", padding:"8px 16px", cursor:"pointer", background:isThreshold?C.surface:"transparent", borderRight:isThreshold?`3px solid ${C.purple}`:"3px solid transparent", transition:"all .15s" }}>
+          <Dot color={C.purple} />
+          <span style={{ fontSize:13, color:isThreshold?C.text:C.textDim, fontWeight:isThreshold?600:400 }}>Threshold Parameters</span>
+        </div>
+      </div>
+      <div style={{ flex:1, padding:24, overflowY:"auto", display:"flex", flexDirection:"column" }}>
+        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:20 }}>
+          <SectionHeader title="Config Center" subtitle={isThreshold ? "Threshold parameters that feed into auto-trigger rules" : "Country-level planning defaults and version management"} />
+          <ActionButtons />
+        </div>
+        <div style={{ display:"flex", flex:1, minHeight:0 }}>
+          <div style={{ flex:1, minWidth:0 }}>
+            <div style={{ display:"grid", gridTemplateColumns:gridCols, padding:"8px 12px", gap:8 }}>
+              {cols.map(h => (
+                <span key={h} style={{ fontSize:11, fontWeight:600, color:C.textMuted, textTransform:"uppercase", letterSpacing:.5 }}>{h}</span>
+              ))}
+            </div>
+            {entries.map((e, i) => (
+              <div key={i} onClick={() => setSelectedEntry(selectedEntry===i?null:i)}
+                style={{ display:"grid", gridTemplateColumns:gridCols, padding:"10px 12px", gap:8, alignItems:"center",
+                  background: selectedEntry===i ? C.surface : C.card, border:`1px solid ${selectedEntry===i?C.accent:C.cardBorder}`, borderRadius:8, marginBottom:6, cursor:"pointer", transition:"all .15s" }}>
+                {isThreshold ? (<>
+                  <span style={{ fontSize:13, fontWeight:600, color:C.text }}>{e.name}</span>
+                  <span style={{ fontSize:12, color:C.textDim }}>{e.metric}</span>
+                  <span style={{ fontSize:14, fontWeight:700, color:C.accent }}>{e.currentValue}</span>
+                  <span style={{ fontSize:12, color:C.textDim }}>{e.scope}</span>
+                  <Badge text={e.source} color={sourceColors[e.source]} />
+                  <span style={{ fontSize:11, color:C.textMuted }}>{e.modified}</span>
+                  <span style={{ fontSize:12, color:C.textDim }}>{e.by}</span>
+                </>) : (<>
+                  <span style={{ fontSize:13, fontWeight:600, color:C.text }}>{e.name}</span>
+                  <span style={{ fontSize:12, color:C.textDim }}>{e.attrs}</span>
+                  <span style={{ fontSize:12, color:C.textDim }}>{e.values}</span>
+                  <Badge text={e.source} color={sourceColors[e.source]} />
+                  <span style={{ fontSize:11, color:C.textMuted }}>{e.modified}</span>
+                  <span style={{ fontSize:12, color:C.textDim }}>{e.by}</span>
+                </>)}
+              </div>
+            ))}
+            <div style={{ fontSize:12, color:C.textMuted, marginTop:8 }}>Showing {entries.length} {isThreshold ? "threshold parameters" : "configuration entries"}</div>
+          </div>
+          {selectedEntry !== null && (
+            isThreshold ? <LinkedRulesPanel entry={thresholdEntries[selectedEntry]} /> : <ImpactPreview entry={configEntries[selectedEntry]} />
+          )}
+        </div>
+        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"12px 0", borderTop:`1px solid ${C.cardBorder}`, marginTop:16, flexShrink:0 }}>
+          <div style={{ display:"flex", alignItems:"center", gap:12 }}>
+            <span style={{ fontSize:12, color:C.textDim }}>Validation Status:</span>
+            <Badge text={"\u26A0 2 Errors"} color={C.red} />
+            <Badge text={"\u26A0 1 Warning"} color={C.yellow} />
+            <span style={{ fontSize:11, color:C.textMuted }}>Last validated: 11:50 AM</span>
+            <span style={{ fontSize:12, color:C.accent, cursor:"pointer" }}>View Details</span>
+          </div>
+          <div style={{ display:"flex", alignItems:"center", gap:12 }}>
+            <span style={{ fontSize:12, color:C.textDim }}>Sync Status:</span>
+            <Badge text={"\u2713 4 Success"} color={C.green} />
+            <Badge text={"\u26A0 1 Warning"} color={C.yellow} />
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ── Tab 3: Auto-trigger Model Components ──
+
+const RuleEditor = ({ onClose }) => {
+  const allSections = ["Route Configuration","Vehicle Types","Station Configuration","Dock Configuration","Staging Configuration","Resource Pool","Planning Parameters","Forecast"];
+  const metrics = thresholdEntries.map(t => t.name);
+  const [condType, setCondType] = useState("metric");
+  const [metric, setMetric] = useState(metrics[0]);
+  const [operator, setOperator] = useState(">");
+  const [value, setValue] = useState("");
+  const [condScope, setCondScope] = useState("All DCs");
+  const [duration, setDuration] = useState("");
+  const [actionType, setActionType] = useState("trigger_replan");
+  const [selectedSections, setSelectedSections] = useState(["Route Configuration"]);
+  const [requiresReview, setRequiresReview] = useState(false);
+  const [ruleName, setRuleName] = useState("");
+
+  const toggleSection = (s) => setSelectedSections(prev => prev.includes(s) ? prev.filter(x => x !== s) : [...prev, s]);
+  const inputStyle = { width:"100%", background:C.surface, border:`1px solid ${C.cardBorder}`, borderRadius:6, padding:"8px 12px", color:C.text, fontSize:12, outline:"none" };
+  const selectStyle = { ...inputStyle, cursor:"pointer" };
+
+  return (
+    <div style={{ background:C.card, border:`1px solid ${C.accent}44`, borderRadius:12, padding:20, marginBottom:20 }}>
+      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:16 }}>
+        <div style={{ fontSize:15, fontWeight:700, color:C.text }}>New Rule</div>
+        <div style={{ display:"flex", gap:8 }}>
+          <input value={ruleName} onChange={e => setRuleName(e.target.value)} placeholder="Rule name..."
+            style={{ ...inputStyle, width:250 }} />
+        </div>
+      </div>
+      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:20 }}>
+        {/* Left: Condition Builder */}
+        <div>
+          <div style={{ fontSize:13, fontWeight:600, color:C.text, marginBottom:12 }}>Trigger Conditions</div>
+          <div style={{ display:"flex", gap:6, marginBottom:12 }}>
+            {[["metric","Metric Threshold"],["schedule","Schedule/Recurring"]].map(([k,l]) => (
+              <button key={k} onClick={() => setCondType(k)} style={{
+                padding:"5px 12px", borderRadius:6, fontSize:12, cursor:"pointer", border:`1px solid ${condType===k?C.accent:C.cardBorder}`,
+                background:condType===k?`${C.accent}22`:"transparent", color:condType===k?C.accent:C.textDim, fontWeight:condType===k?600:400,
+              }}>{l}</button>
+            ))}
+          </div>
+          {condType === "metric" ? (
+            <div style={{ background:C.surface, borderRadius:8, padding:16, border:`1px solid ${C.cardBorder}` }}>
+              <div style={{ marginBottom:10 }}>
+                <label style={{ fontSize:11, color:C.textDim, display:"block", marginBottom:4 }}>Metric</label>
+                <select value={metric} onChange={e => setMetric(e.target.value)} style={selectStyle}>
+                  {metrics.map(m => <option key={m}>{m}</option>)}
+                </select>
+              </div>
+              <div style={{ display:"grid", gridTemplateColumns:"80px 1fr", gap:8, marginBottom:10 }}>
+                <div>
+                  <label style={{ fontSize:11, color:C.textDim, display:"block", marginBottom:4 }}>Operator</label>
+                  <select value={operator} onChange={e => setOperator(e.target.value)} style={selectStyle}>
+                    {[">","<",">=","<=","=="].map(o => <option key={o}>{o}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label style={{ fontSize:11, color:C.textDim, display:"block", marginBottom:4 }}>Value</label>
+                  <input value={value} onChange={e => setValue(e.target.value)} placeholder="e.g., 10,000" style={inputStyle} />
+                </div>
+              </div>
+              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8 }}>
+                <div>
+                  <label style={{ fontSize:11, color:C.textDim, display:"block", marginBottom:4 }}>Scope</label>
+                  <select value={condScope} onChange={e => setCondScope(e.target.value)} style={selectStyle}>
+                    {["All DCs","All Routes","Cakung DC","Semarang Hub","Surabaya DC","Medan DC"].map(s => <option key={s}>{s}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label style={{ fontSize:11, color:C.textDim, display:"block", marginBottom:4 }}>Sustained for (optional)</label>
+                  <input value={duration} onChange={e => setDuration(e.target.value)} placeholder="e.g., 3 days" style={inputStyle} />
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div style={{ background:C.surface, borderRadius:8, padding:16, border:`1px solid ${C.cardBorder}` }}>
+              <div style={{ marginBottom:10 }}>
+                <label style={{ fontSize:11, color:C.textDim, display:"block", marginBottom:4 }}>Frequency</label>
+                <select style={selectStyle}>
+                  <option>Daily</option><option>Weekly</option><option>Monthly</option><option>Quarterly</option>
+                </select>
+              </div>
+              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8 }}>
+                <div>
+                  <label style={{ fontSize:11, color:C.textDim, display:"block", marginBottom:4 }}>Day</label>
+                  <input placeholder="e.g., 1st day" style={inputStyle} />
+                </div>
+                <div>
+                  <label style={{ fontSize:11, color:C.textDim, display:"block", marginBottom:4 }}>Time</label>
+                  <input placeholder="e.g., 00:00" style={inputStyle} />
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+        {/* Right: Action Definition */}
+        <div>
+          <div style={{ fontSize:13, fontWeight:600, color:C.text, marginBottom:12 }}>Action When Triggered</div>
+          <div style={{ display:"flex", gap:6, marginBottom:12, flexWrap:"wrap" }}>
+            {[["trigger_replan","Trigger Replan"],["create_task","Create Review Task"],["send_alert","Send Alert"],["escalate","Escalate"]].map(([k,l]) => (
+              <button key={k} onClick={() => setActionType(k)} style={{
+                padding:"5px 12px", borderRadius:6, fontSize:12, cursor:"pointer", border:`1px solid ${actionType===k?C.accent:C.cardBorder}`,
+                background:actionType===k?`${C.accent}22`:"transparent", color:actionType===k?C.accent:C.textDim, fontWeight:actionType===k?600:400,
+              }}>{l}</button>
+            ))}
+          </div>
+          <div style={{ background:C.surface, borderRadius:8, padding:16, border:`1px solid ${C.cardBorder}` }}>
+            {actionType === "trigger_replan" && (<>
+              <div style={{ fontSize:12, color:C.textDim, marginBottom:8 }}>Config sections to include:</div>
+              <div style={{ display:"flex", flexWrap:"wrap", gap:6, marginBottom:12 }}>
+                {allSections.map(s => {
+                  const sel = selectedSections.includes(s);
+                  return (
+                    <div key={s} onClick={() => toggleSection(s)} style={{
+                      padding:"4px 10px", borderRadius:6, fontSize:11, cursor:"pointer", userSelect:"none",
+                      background: sel ? `${C.purple}22` : "transparent", border:`1px solid ${sel?C.purple:C.cardBorder}`,
+                      color: sel ? C.purple : C.textDim, fontWeight:sel?600:400,
+                    }}>{sel && "\u2713 "}{s}</div>
+                  );
+                })}
+              </div>
+              <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+                <span style={{ fontSize:12, color:C.textDim }}>Requires review?</span>
+                <StatusToggle active={requiresReview} onToggle={() => setRequiresReview(!requiresReview)} />
+              </div>
+            </>)}
+            {actionType === "create_task" && (<>
+              <div style={{ marginBottom:10 }}>
+                <label style={{ fontSize:11, color:C.textDim, display:"block", marginBottom:4 }}>Priority</label>
+                <select style={selectStyle}><option>High</option><option>Medium</option><option>Low</option></select>
+              </div>
+              <div>
+                <label style={{ fontSize:11, color:C.textDim, display:"block", marginBottom:4 }}>Assignee</label>
+                <input placeholder="e.g., Regional Manager" style={inputStyle} />
+              </div>
+            </>)}
+            {actionType === "send_alert" && (<>
+              <div style={{ marginBottom:10 }}>
+                <label style={{ fontSize:11, color:C.textDim, display:"block", marginBottom:4 }}>Channel</label>
+                <select style={selectStyle}><option>In-app</option><option>Email</option><option>Slack</option></select>
+              </div>
+              <div>
+                <label style={{ fontSize:11, color:C.textDim, display:"block", marginBottom:4 }}>Recipient</label>
+                <input placeholder="e.g., Operations Planner" style={inputStyle} />
+              </div>
+            </>)}
+            {actionType === "escalate" && (<>
+              <div style={{ marginBottom:10 }}>
+                <label style={{ fontSize:11, color:C.textDim, display:"block", marginBottom:4 }}>Escalation Target</label>
+                <select style={selectStyle}><option>Regional Manager</option><option>Director</option><option>Operations Lead</option></select>
+              </div>
+              <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+                <span style={{ fontSize:12, color:C.textDim }}>Include auto-replan?</span>
+                <StatusToggle active={false} onToggle={() => {}} />
+              </div>
+            </>)}
+          </div>
+        </div>
+      </div>
+      <div style={{ display:"flex", gap:8, justifyContent:"flex-end", marginTop:16 }}>
+        <Btn onClick={onClose}>Cancel</Btn>
+        <Btn>Save as Draft</Btn>
+        <Btn primary>Save & Activate</Btn>
+      </div>
+    </div>
+  );
+};
+
+const RuleEngineTab = () => {
+  const [ruleStatuses, setRuleStatuses] = useState(Object.fromEntries(rules.map(r => [r.id, r.status === "Active"])));
+  const [showEditor, setShowEditor] = useState(false);
+  const [expandedRule, setExpandedRule] = useState(null);
+
+  const toggleRule = (id) => setRuleStatuses(prev => ({ ...prev, [id]: !prev[id] }));
+
+  return (
+    <div>
+      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:16 }}>
+        <div>
+          <span style={{ fontSize:14, fontWeight:600, color:C.text }}>Rules</span>
+          <span style={{ fontSize:12, color:C.textMuted, marginLeft:8 }}>{rules.length} rules configured</span>
+        </div>
+        <Btn primary onClick={() => setShowEditor(!showEditor)}>+ New Rule</Btn>
+      </div>
+      {showEditor && <RuleEditor onClose={() => setShowEditor(false)} />}
+      <div style={{ display:"grid", gridTemplateColumns:"50px 1fr 1fr 1fr 90px 130px 80px", padding:"8px 12px", gap:8, marginBottom:4 }}>
+        {["Status","Rule Name","Conditions","Actions","Triggers","Last Triggered",""].map(h => (
+          <span key={h} style={{ fontSize:11, fontWeight:600, color:C.textMuted, textTransform:"uppercase", letterSpacing:.5 }}>{h}</span>
+        ))}
+      </div>
+      {rules.map(r => (
+        <div key={r.id} style={{ borderRadius:8, marginBottom:8, overflow:"hidden", border:`1px solid ${expandedRule===r.id?C.accent:C.cardBorder}`, background:expandedRule===r.id?C.surface:C.card, transition:"all .2s" }}>
+          <div style={{ display:"grid", gridTemplateColumns:"50px 1fr 1fr 1fr 90px 130px 80px", padding:"10px 12px", gap:8, alignItems:"center" }}>
+            <StatusToggle active={ruleStatuses[r.id]} onToggle={() => toggleRule(r.id)} />
+            <span onClick={() => setExpandedRule(expandedRule===r.id?null:r.id)} style={{ fontSize:13, fontWeight:600, color:C.text, cursor:"pointer" }}>{r.name}</span>
+            <span style={{ fontSize:12, color:C.textDim }}>{r.conditionSummary}</span>
+            <span style={{ fontSize:12, color:C.textDim }}>{r.actionSummary}</span>
+            <span style={{ fontSize:13, fontWeight:700, color:C.accent, textAlign:"center" }}>{r.triggerCount}</span>
+            <span style={{ fontSize:11, color:C.textMuted }}>{r.lastTriggered || "Never"}</span>
+            <div style={{ display:"flex", gap:6 }}>
+              <span style={{ fontSize:12, color:C.accent, cursor:"pointer" }}>Edit</span>
+              <span style={{ fontSize:12, color:C.red, cursor:"pointer" }}>Del</span>
+            </div>
+          </div>
+          {expandedRule === r.id && (
+            <div style={{ padding:"0 12px 16px", borderTop:`1px solid ${C.cardBorder}` }}>
+              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:16, marginTop:12 }}>
+                <div>
+                  <div style={{ fontSize:12, fontWeight:600, color:C.textDim, marginBottom:8 }}>CONDITIONS</div>
+                  {r.conditions.map((c, i) => (
+                    <div key={i} style={{ background:C.surface, borderRadius:6, padding:10, marginBottom:6, border:`1px solid ${C.cardBorder}` }}>
+                      {c.type === "metric" ? (
+                        <div style={{ fontSize:12, color:C.text }}>
+                          <Badge text={c.metric} color={C.purple} style={{ marginRight:6 }} />
+                          <span style={{ color:C.accent, fontWeight:600 }}>{c.operator} {c.value}</span>
+                          <span style={{ color:C.textDim }}> at {c.scope}</span>
+                          {c.duration && <span style={{ color:C.textMuted }}> for {c.duration}</span>}
+                        </div>
+                      ) : (
+                        <div style={{ fontSize:12, color:C.text }}>
+                          <Badge text="Schedule" color={C.blue} style={{ marginRight:6 }} />
+                          {c.frequency} on {c.day} at {c.time}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+                <div>
+                  <div style={{ fontSize:12, fontWeight:600, color:C.textDim, marginBottom:8 }}>ACTIONS</div>
+                  {r.actions.map((a, i) => (
+                    <div key={i} style={{ background:C.surface, borderRadius:6, padding:10, marginBottom:6, border:`1px solid ${C.cardBorder}` }}>
+                      <Badge text={a.type.replace(/_/g, " ")} color={a.type==="trigger_replan"?C.green:a.type==="escalate"?C.red:C.blue} style={{ marginRight:6, textTransform:"capitalize" }} />
+                      {a.type === "trigger_replan" && <span style={{ fontSize:12, color:C.textDim }}>Sections: {a.sections.join(", ")} | Review: {a.requiresReview?"Yes":"No"}</span>}
+                      {a.type === "create_task" && <span style={{ fontSize:12, color:C.textDim }}>Priority: {a.priority} | Assignee: {a.assignee}</span>}
+                      {a.type === "send_alert" && <span style={{ fontSize:12, color:C.textDim }}>Channel: {a.channel} | To: {a.recipient}</span>}
+                      {a.type === "escalate" && <span style={{ fontSize:12, color:C.textDim }}>Target: {a.target}</span>}
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <div style={{ marginTop:12, fontSize:11, color:C.textMuted }}>Created by {r.createdBy} on {r.createdAt} | ID: {r.id}</div>
+            </div>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+};
+
+const ManualTriggerTab = () => {
+  const allSections = ["Route Configuration","Vehicle Types","Station Configuration","Dock Configuration","Staging Configuration","Resource Pool","Planning Parameters","Forecast","Objective & Strategy Defaults"];
+  const scopes = ["Cakung DC","Semarang Hub","Surabaya DC","Medan DC","Makassar DC","All DCs"];
+  const [selectedSections, setSelectedSections] = useState(["Route Configuration","Vehicle Types"]);
+  const [scope, setScope] = useState("Cakung DC");
+  const [period, setPeriod] = useState("Q2 2026");
+  const [runName, setRunName] = useState("");
+  const [expandedRun, setExpandedRun] = useState(null);
+  const [running, setRunning] = useState(false);
+  const [showCreate, setShowCreate] = useState(false);
+
+  const toggleSection = (s) => setSelectedSections(prev => prev.includes(s) ? prev.filter(x => x !== s) : [...prev, s]);
+  const handleRun = () => { setRunning(true); setTimeout(() => { setRunning(false); setShowCreate(false); }, 2500); };
+
+  return (
+    <div>
+      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:20 }}>
+        <div>
+          <span style={{ fontSize:14, fontWeight:600, color:C.text }}>Manual Trigger</span>
+          <p style={{ fontSize:13, color:C.textDim, marginTop:4 }}>Select config sections, trigger MILP optimization, and review results</p>
+        </div>
+        <Btn primary onClick={() => setShowCreate(!showCreate)}>+ New Run</Btn>
+      </div>
+
+      {showCreate && (
+        <div style={{ background:C.card, border:`1px solid ${C.accent}44`, borderRadius:12, padding:20, marginBottom:20 }}>
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:20 }}>
+            <div>
+              <div style={{ fontSize:13, fontWeight:600, color:C.text, marginBottom:12 }}>1. Select Config Sections</div>
+              <div style={{ display:"flex", flexWrap:"wrap", gap:8 }}>
+                {allSections.map(s => {
+                  const selected = selectedSections.includes(s);
+                  return (
+                    <div key={s} onClick={() => toggleSection(s)} style={{
+                      padding:"6px 14px", borderRadius:8, fontSize:12, cursor:"pointer", transition:"all .15s", userSelect:"none",
+                      background: selected ? `${C.purple}22` : C.surface, border: `1px solid ${selected ? C.purple : C.cardBorder}`,
+                      color: selected ? C.purple : C.textDim, fontWeight: selected ? 600 : 400,
+                    }}>{selected && "\u2713 "}{s}</div>
+                  );
+                })}
+              </div>
+              {selectedSections.length > 0 && (
+                <div style={{ marginTop:12, fontSize:12, color:C.textDim }}>
+                  <span style={{ color:C.purple, fontWeight:600 }}>{selectedSections.length}</span> sections selected
+                </div>
+              )}
+            </div>
+            <div>
+              <div style={{ fontSize:13, fontWeight:600, color:C.text, marginBottom:12 }}>2. Configure Run</div>
+              <div style={{ marginBottom:12 }}>
+                <label style={{ fontSize:12, color:C.textDim, display:"block", marginBottom:4 }}>Run Name</label>
+                <input value={runName} onChange={e => setRunName(e.target.value)} placeholder="e.g., Cakung Q2 Capacity Test"
+                  style={{ width:"100%", background:C.surface, border:`1px solid ${C.cardBorder}`, borderRadius:6, padding:"8px 12px", color:C.text, fontSize:13, outline:"none" }} />
+              </div>
+              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12, marginBottom:12 }}>
+                <div>
+                  <label style={{ fontSize:12, color:C.textDim, display:"block", marginBottom:4 }}>Scope</label>
+                  <select value={scope} onChange={e => setScope(e.target.value)}
+                    style={{ width:"100%", background:C.surface, border:`1px solid ${C.cardBorder}`, borderRadius:6, padding:"8px 12px", color:C.text, fontSize:13 }}>
+                    {scopes.map(s => <option key={s} value={s}>{s}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label style={{ fontSize:12, color:C.textDim, display:"block", marginBottom:4 }}>Planning Period</label>
+                  <select value={period} onChange={e => setPeriod(e.target.value)}
+                    style={{ width:"100%", background:C.surface, border:`1px solid ${C.cardBorder}`, borderRadius:6, padding:"8px 12px", color:C.text, fontSize:13 }}>
+                    <option>Q2 2026</option><option>Q3 2026</option><option>Q4 2026</option>
+                  </select>
+                </div>
+              </div>
+              <div style={{ display:"flex", gap:8, justifyContent:"flex-end", marginTop:16 }}>
+                <Btn onClick={() => setShowCreate(false)}>Cancel</Btn>
+                <Btn>Save as Rule</Btn>
+                <button onClick={handleRun} disabled={running || selectedSections.length === 0}
+                  style={{
+                    padding:"8px 24px", borderRadius:8, border:"none", fontSize:14, fontWeight:600, cursor: running?"not-allowed":"pointer",
+                    background: running ? C.yellow : selectedSections.length===0 ? C.cardBorder : C.accent,
+                    color: running ? "#000" : "#fff", display:"flex", alignItems:"center", gap:8, transition:"all .2s",
+                  }}>
+                  {running ? (<><span style={{ display:"inline-block", width:14, height:14, border:"2px solid #000", borderTop:"2px solid transparent", borderRadius:"50%", animation:"spin 1s linear infinite" }} /> Running MILP...</>) :
+                    (<><span style={{ fontSize:16 }}>{"\u25B6"}</span> Run Optimization</>)}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div style={{ fontSize:14, fontWeight:600, color:C.text, marginBottom:12 }}>Run History</div>
+      <div style={{ display:"grid", gridTemplateColumns:"130px 1fr 120px 120px 90px 120px 80px", padding:"8px 12px", gap:8 }}>
+        {["Run ID","Name","Scope","Period","Status","Created","By"].map(h => (
+          <span key={h} style={{ fontSize:11, fontWeight:600, color:C.textMuted, textTransform:"uppercase", letterSpacing:.5 }}>{h}</span>
+        ))}
+      </div>
+      {adhocRuns.map((r, i) => (
+        <div key={r.id} style={{ borderRadius:8, marginBottom:8, overflow:"hidden", border:`1px solid ${expandedRun===i?C.accent:C.cardBorder}`, background:expandedRun===i?C.surface:C.card, transition:"all .2s" }}>
+          <div onClick={() => setExpandedRun(expandedRun===i?null:i)} style={{ display:"grid", gridTemplateColumns:"130px 1fr 120px 120px 90px 120px 80px", padding:"10px 12px", gap:8, alignItems:"center", cursor:"pointer" }}>
+            <span style={{ fontSize:12, color:C.blue, fontFamily:"monospace" }}>{r.id}</span>
+            <span style={{ fontSize:13, fontWeight:600, color:C.text }}>{r.name}</span>
+            <span style={{ fontSize:12, color:C.textDim }}>{r.scope}</span>
+            <span style={{ fontSize:12, color:C.textDim }}>{r.period}</span>
+            <Badge text={r.status} color={runStatusColors[r.status]} />
+            <span style={{ fontSize:11, color:C.textMuted }}>{r.created}</span>
+            <span style={{ fontSize:12, color:C.textDim }}>{r.by}</span>
+          </div>
+          {expandedRun === i && r.result && (
+            <div style={{ padding:"0 12px 16px", borderTop:`1px solid ${C.cardBorder}` }}>
+              <div style={{ marginTop:12, marginBottom:16 }}>
+                <div style={{ fontSize:12, fontWeight:600, color:C.textDim, marginBottom:6 }}>CONFIG SECTIONS USED</div>
+                <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>{r.sections.map(s => <Badge key={s} text={s} color={C.purple} />)}</div>
+              </div>
+              <div style={{ fontSize:12, fontWeight:600, color:C.textDim, marginBottom:8 }}>OPTIMIZATION RESULT</div>
+              <div style={{ display:"grid", gridTemplateColumns:"repeat(5, 1fr)", gap:10, marginBottom:16 }}>
+                {[
+                  ["Total Trips", r.result.trips, r.result.tripDelta, C.blue],
+                  ["Total Cost", r.result.cost, r.result.costDelta, C.orange],
+                  ["Avg Occupancy", r.result.occupancy, r.result.occDelta, C.green],
+                  ["SLA Forecast", r.result.sla, r.result.slaDelta, C.purple],
+                  ["Vehicles Used", r.result.vehicles, null, C.textDim],
+                ].map(([label, value, delta, color]) => (
+                  <div key={label} style={{ background:`${color}11`, borderRadius:8, padding:12, textAlign:"center" }}>
+                    <div style={{ fontSize:20, fontWeight:800, color }}>{value}</div>
+                    {delta && <div style={{ fontSize:12, fontWeight:600, color: delta.startsWith("-") ? C.green : delta.startsWith("+") && label !== "Avg Occupancy" && label !== "SLA Forecast" ? C.red : C.green, marginTop:2 }}>{delta} vs. current</div>}
+                    <div style={{ fontSize:11, color:C.textDim, marginTop:4 }}>{label}</div>
+                  </div>
+                ))}
+              </div>
+              <div style={{ fontSize:12, fontWeight:600, color:C.textDim, marginBottom:8 }}>SCHEDULE PREVIEW <span style={{ fontWeight:400, color:C.textMuted }}>(top 5 trips)</span></div>
+              <div style={{ background:C.card, borderRadius:8, border:`1px solid ${C.cardBorder}`, overflow:"hidden" }}>
+                <div style={{ display:"grid", gridTemplateColumns:"120px 80px 80px 100px 90px", padding:"8px 12px", gap:8, background:C.surface }}>
+                  {["Route","Depart","Arrive","Vehicle","Occupancy"].map(h => (
+                    <span key={h} style={{ fontSize:10, fontWeight:600, color:C.textMuted, textTransform:"uppercase" }}>{h}</span>
+                  ))}
+                </div>
+                {r.schedule.map((trip, ti) => (
+                  <div key={ti} style={{ display:"grid", gridTemplateColumns:"120px 80px 80px 100px 90px", padding:"7px 12px", gap:8, borderTop:`1px solid ${C.cardBorder}` }}>
+                    <span style={{ fontSize:12, color:C.blue, fontFamily:"monospace" }}>{trip.route}</span>
+                    <span style={{ fontSize:12, color:C.text }}>{trip.departure}</span>
+                    <span style={{ fontSize:12, color:C.text }}>{trip.arrival}</span>
+                    <span style={{ fontSize:12, color:C.textDim }}>{trip.vehicle}</span>
+                    <div style={{ display:"flex", alignItems:"center", gap:6 }}>
+                      <div style={{ flex:1, height:4, background:C.surface, borderRadius:2, overflow:"hidden" }}>
+                        <div style={{ width:trip.occupancy, height:"100%", background: parseInt(trip.occupancy)>=80?C.green:C.yellow, borderRadius:2 }} />
+                      </div>
+                      <span style={{ fontSize:11, color:C.textDim, minWidth:30 }}>{trip.occupancy}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <div style={{ display:"flex", gap:8, marginTop:16, justifyContent:"flex-end" }}>
+                <Btn>{"\uD83D\uDCCB"} Export Schedule</Btn>
+                <Btn>{"\uD83D\uDD04"} Clone & Rerun</Btn>
+                <Btn primary>{"\u2713"} Publish as Draft</Btn>
+              </div>
+              <div style={{ fontSize:11, color:C.textMuted, marginTop:8 }}>Runtime: {r.result.runtime} | Engine: MILP v3.2</div>
+            </div>
+          )}
+          {expandedRun === i && !r.result && (
+            <div style={{ padding:"16px 12px", borderTop:`1px solid ${C.cardBorder}` }}>
+              <div style={{ display:"flex", alignItems:"center", gap:12 }}>
+                <span style={{ fontSize:20 }}>{"\u274C"}</span>
+                <div>
+                  <div style={{ fontSize:13, fontWeight:600, color:C.red }}>Optimization Failed</div>
+                  <div style={{ fontSize:12, color:C.textDim, marginTop:2 }}>Infeasible model: Dock Configuration conflicts with Route Configuration constraints.</div>
+                </div>
+                <Btn style={{ marginLeft:"auto" }}>View Error Log</Btn>
+              </div>
+            </div>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+};
+
+const TaskRow = ({ item, expanded, onClick }) => {
+  const bColor = priorityColors[item.priority];
+  return (
+    <div style={{ borderLeft:`4px solid ${bColor}`, background: expanded ? C.surface : C.card, borderRadius:8, marginBottom:8, overflow:"hidden", transition:"all .2s" }}>
+      <div onClick={onClick} style={{ display:"grid", gridTemplateColumns:"90px 120px 200px 100px 120px 100px 110px", alignItems:"center", padding:"12px 16px", cursor:"pointer", gap:8 }}>
+        <Badge text={item.priority} color={bColor} />
+        <span style={{ fontSize:13, color:C.text }}>{item.trigger}</span>
+        <span style={{ fontSize:13, color:C.text }}>{item.scope}</span>
+        <span style={{ fontSize:13, color:C.textDim }}>{item.period}</span>
+        <span style={{ fontSize:12, color:C.textDim }}>{item.due}</span>
+        <Badge text={item.status} color={taskStatusColors[item.status]} style={{ fontSize:11 }} />
+        {item.sourceRuleId ? <Badge text={item.sourceRuleId} color={C.purple} style={{ fontSize:10 }} /> : <span style={{ fontSize:11, color:C.textMuted }}>Manual</span>}
+      </div>
+      {expanded && (
+        <div style={{ padding:"0 16px 16px", borderTop:`1px solid ${C.cardBorder}` }}>
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:16, marginTop:12 }}>
+            <div>
+              <div style={{ fontSize:12, fontWeight:600, color:C.textDim, marginBottom:6 }}>RISK BREAKDOWN</div>
+              <p style={{ fontSize:13, color:C.text, lineHeight:1.6 }}>{item.detail.risk}</p>
+              <div style={{ marginTop:8, fontSize:12, fontWeight:600, color:C.textDim }}>AFFECTED ROUTES</div>
+              <div style={{ display:"flex", gap:6, marginTop:4, flexWrap:"wrap" }}>
+                {item.detail.routes.map(r => <Badge key={r} text={r} color={C.blue} />)}
+              </div>
+            </div>
+            <div style={{ background:C.card, border:`1px solid ${C.cardBorder}`, borderRadius:8, padding:12 }}>
+              <div style={{ fontSize:12, fontWeight:600, color:C.textDim, marginBottom:8 }}>ACTION RESULT SUMMARY</div>
+              {item.detail.result ? (
+                <div>
+                  <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:8, marginBottom:8 }}>
+                    {[["Trip \u0394", item.detail.result.trips, C.blue], ["Cost \u0394", item.detail.result.cost, C.orange], ["SLA \u0394", item.detail.result.sla, C.green]].map(([l,v,c]) => (
+                      <div key={l} style={{ textAlign:"center", padding:8, background:`${c}11`, borderRadius:6 }}>
+                        <div style={{ fontSize:18, fontWeight:700, color:c }}>{v}</div>
+                        <div style={{ fontSize:11, color:C.textDim }}>{l}</div>
+                      </div>
+                    ))}
+                  </div>
+                  <Badge text={"\u2705 " + item.detail.result.status} color={C.green} />
+                </div>
+              ) : (
+                <div style={{ fontSize:13, color:C.textMuted, fontStyle:"italic" }}>No result yet &mdash; action pending</div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+const TriggeredTasksTab = () => {
+  const [expandedId, setExpandedId] = useState(null);
+  const [sourceFilter, setSourceFilter] = useState("All");
+  const [statusFilter, setStatusFilter] = useState("All");
+
+  const filtered = triggeredTasks.filter(t => {
+    if (sourceFilter === "Rule" && !t.sourceRuleId) return false;
+    if (sourceFilter === "Manual" && t.sourceRuleId) return false;
+    if (statusFilter !== "All" && t.status !== statusFilter) return false;
+    return true;
+  });
+
+  return (
+    <div>
+      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:16 }}>
+        <div>
+          <span style={{ fontSize:14, fontWeight:600, color:C.text }}>Triggered Tasks</span>
+          <span style={{ fontSize:12, color:C.textMuted, marginLeft:8 }}>{triggeredTasks.length} tasks</span>
+        </div>
+        <div style={{ display:"flex", gap:8 }}>
+          <select value={sourceFilter} onChange={e => setSourceFilter(e.target.value)}
+            style={{ background:C.surface, border:`1px solid ${C.cardBorder}`, borderRadius:6, color:C.text, padding:"5px 10px", fontSize:12 }}>
+            <option value="All">All Sources</option><option>Rule</option><option>Manual</option>
+          </select>
+          <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)}
+            style={{ background:C.surface, border:`1px solid ${C.cardBorder}`, borderRadius:6, color:C.text, padding:"5px 10px", fontSize:12 }}>
+            <option value="All">All Status</option><option>Pending Review</option><option>In Progress</option><option>Completed</option><option>Rejected</option>
+          </select>
+        </div>
+      </div>
+      <div style={{ display:"grid", gridTemplateColumns:"90px 120px 200px 100px 120px 100px 110px", padding:"8px 16px", gap:8, marginBottom:4 }}>
+        {["Priority","Trigger","Scope","Period","Due Date","Status","Source Rule"].map(h => (
+          <span key={h} style={{ fontSize:11, fontWeight:600, color:C.textMuted, textTransform:"uppercase", letterSpacing:.5 }}>{h}</span>
+        ))}
+      </div>
+      {filtered.map(t => (
+        <TaskRow key={t.id} item={t} expanded={expandedId===t.id} onClick={() => setExpandedId(expandedId===t.id?null:t.id)} />
+      ))}
+    </div>
+  );
+};
+
+const AutoTriggerModel = () => {
+  const [subTab, setSubTab] = useState("Rule Engine");
+  return (
+    <div style={{ padding:24 }}>
+      <SectionHeader title="Auto-trigger Model" subtitle="Configure trigger rules, run manual optimizations, and manage triggered tasks" />
+      <SubTabBar tabs={["Rule Engine", "Manual Trigger", "Triggered Tasks"]} active={subTab} setActive={setSubTab} />
+      {subTab === "Rule Engine" && <RuleEngineTab />}
+      {subTab === "Manual Trigger" && <ManualTriggerTab />}
+      {subTab === "Triggered Tasks" && <TriggeredTasksTab />}
+    </div>
+  );
+};
+
+// ── App ──
+
+const App = () => {
+  const [activeTab, setActiveTab] = useState("Anomaly Monitor");
+  return (
+    <div style={{ minHeight:"100vh", background:C.bg }}>
+      <TopBar activeTab={activeTab} setActiveTab={setActiveTab} notifCount={3} />
+      {activeTab === "Anomaly Monitor" && <AnomalyMonitoring />}
+      {activeTab === "Config Center" && <ConfigurationCenter />}
+      {activeTab === "Auto-trigger Model" && <AutoTriggerModel />}
+    </div>
+  );
+};
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+</script>
+</body>
+</html>
